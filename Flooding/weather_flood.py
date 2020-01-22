@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from scipy.stats import ttest_ind
 
 import datetime
 from datetime import timedelta
@@ -17,18 +18,21 @@ class flooding:
         '''
         Loads data from the file
         '''
-        xls = pd.ExcelFile("C:\\Users\\")
+        xls = pd.ExcelFile("C:\\Users\\mohammad.sharif\\Desktop\\DS_models\\Flooding\\SevereWeather.xlsx")
         self.df = pd.read_excel(xls, 'Raw Severe Data')
+        self.distinct_year = self.df.Year.unique()
+        self.distinct_EVENT_TYPE = self.df.EVENT_TYPE.unique()
 
         # df1 = self.df['EVENT_TYPE'].unique()
         # print(np.sort(df1))
 
-    def selected_data(self, interesting_county):
+    def selected_data(self, interesting_county, interesting_district):
         '''
         Slices relevant data as needed
         '''
 
-        self.df = self.df.loc[self.df['CORRECTED_NAME'].isin(interesting_county)]
+        #self.df = self.df.loc[self.df['CORRECTED_NAME'].isin(interesting_county)]
+        self.df = self.df.loc[self.df['DistrictName'].isin(interesting_district)]
 
     def find_event_seq(self, interesting_events, date_difference):
         '''
@@ -106,7 +110,7 @@ class flooding:
         fig, ax = plt.subplots(figsize=(12, 7))
 
         # Add title to the Heat map
-        title = "Flooding Changes(Consecutive Year)"
+        title = "Flooding Changes in Consecutive Years (normalised deviation))"
 
         # Set the font size and the distance of the title
         plt.title(title, fontsize=18)
@@ -126,37 +130,58 @@ class flooding:
 
         return
 
-    def flooding_test(self, interesting_events):
+    def flooding_test(self, df):
         '''
         Tets Flooding situtation
         '''
 
-        df = self.df
-        df = df.loc[df['EVENT_TYPE'].isin(interesting_events)]
-        df = df.groupby(['Year']).size().reset_index(name='counts')
-        df = df.sort_values(by=['Year'], ascending=True)
-        print(df)
-        data = df.loc[:15, 'counts'].mean(), df.loc[15:, 'counts'].mean()
-        data = df.loc[:10, 'counts'].mean(), df.loc[10:, 'counts'].mean()
-        print(data)
+        year = datetime.datetime.today().year - 1
 
-    def plot_flood_vs_other(self):
+        for year in list(range(year, year - 20, -1)):
+            if year not in df['Year'].values:
+                df = df.append({'Year': year, 'counts': 0}, ignore_index=True)
+
+
+        df = df.sort_values(by='Year', ascending=True)
+        print(df)
+
+        stat, p = ttest_ind(df['counts'][:6], df['counts'][6:], axis = 0, equal_var=False)
+        print('Statistics=%.3f, p=%.3f' % (stat, p))
+        # interpret
+        alpha = 0.05
+        if p > alpha:
+            print('Same distributions (fail to reject H0)')
+        else:
+            print('Different distributions (reject H0)')
+
+
+    def plot_flood_vs_other(self, interesting_county, interesting_district):
         '''
         Draws scatter plots for different events with flooding for comparison
         '''
 
         df = self.df
-        df = df[df['CORRECTED_NAME'] == 'STAFFORD']
+        #interesting_county = ['STAFFORD']
+
+
+        #df = df.loc[df['CORRECTED_NAME'].isin(interesting_county)]
+        df = df.loc[df['DistrictName'].isin(interesting_district)]
+
         # distinct_county = df.CORRECTED_NAME.unique()
-        distinct_year = df.Year.unique()
-        distinct_EVENT_TYPE = df.EVENT_TYPE.unique()
+        #self.distinct_year = df.Year.unique()
+        #self.distinct_EVENT_TYPE = df.EVENT_TYPE.unique()
 
-        df = df.groupby(['CORRECTED_NAME', 'Year', 'EVENT_TYPE']).size().reset_index(name='counts')
 
-        county = 'STAFFORD'
+        #df = df.groupby(['CORRECTED_NAME', 'Year', 'EVENT_TYPE'])['EPISODE_ID'].nunique().reset_index(name='counts')
+        #df = df.groupby(['Year', 'EVENT_TYPE'])['EPISODE_ID'].nunique().reset_index(name='counts')
+        df = df.groupby(['Year', 'EVENT_TYPE']).size().reset_index(name='counts')
+
+        #county = 'STAFFORD'
+
+
         tuple = []
-        for year in distinct_year:
-            for event in distinct_EVENT_TYPE:
+        for year in self.distinct_year:
+            for event in self.distinct_EVENT_TYPE:
                 list = [year, event]
                 tuple.append(list)
 
@@ -167,9 +192,12 @@ class flooding:
 
         for element in tuple:
             if element not in grouped_set:
-                df = df.append({'CORRECTED_NAME': county, 'Year': element[0], 'EVENT_TYPE': element[1], 'counts': 0},
+                #df = df.append({'CORRECTED_NAME': county, 'Year': element[0], 'EVENT_TYPE': element[1], 'counts': 0}, ignore_index=True)
+                df = df.append({'Year': element[0], 'EVENT_TYPE': element[1], 'counts': 0},
                                ignore_index=True)
 
+
+        #df = self.add_new_events_for_visualization(df,'EVENT_TYPE')
         year = np.asarray(sorted(df.Year.unique()))
         print(year)
         Dense_Fog = np.asarray(df[df['EVENT_TYPE'] == 'Dense Fog'].sort_values(['Year']).counts)
@@ -191,54 +219,189 @@ class flooding:
         Flood = np.asarray(df[df['EVENT_TYPE'] == 'Flood'].sort_values(['Year']).counts)
         print(Flood)
 
-        #['Flood', 'Flash Flood']
 
         df = pd.DataFrame({'Year': year, 'Dense_Fog': Dense_Fog, 'Heavy_Rain': Heavy_Rain, 'Heavy_Snow': Heavy_Snow,
                            'High_Wind': High_Wind, 'Ice Storm': Ice_Storm, 'Winter_Storm': Winter_Storm,
                            'Flash_Flood': Flash_Flood, 'Flood': Flood})
 
+        title = 'Yearly Event Counts Comparison (Fredericksburg)'
+        ncol = 8
+        self.plot_yearly_events(df, ncol, title)
+        # plot aggregated events count comparison with flooding
+        #flooding = np.add(Flood, Flash_Flood)
+        flooding = Flood
+        add_array = np.array([Dense_Fog, Heavy_Rain,  Heavy_Snow, High_Wind, Ice_Storm,  Winter_Storm])
+        others = add_array.sum(axis=0)
+        agg_df = pd.DataFrame({'Year': year,'others': others, 'flooding': flooding })
+        title = 'Flooding vs other event(aggregated) count comparison  (Fredericksburg)'
+        ncol = 2
+        self.plot_yearly_events(agg_df, ncol, title)
+
+    def plot_event_seq(self, event_seq_df, interesting_county, interesting_district):
+
+        event_seq_df = pd.read_csv('C:\\Users\\mohammad.sharif\\Desktop\\DS_models\\Flooding\\causing_event.csv')
+
+        event_seq_df = event_seq_df.loc[event_seq_df['CORRECTED_NAME'].isin(interesting_county)]
+        #event_seq_df = event_seq_df.loc[event_seq_df['DistrictName'].isin(interesting_district)]
+        event_seq_df['Year'] = pd.DatetimeIndex(event_seq_df['start_time_1st_event']).year
+        event_seq_df = event_seq_df.groupby(['Year', '1st_event']).size().reset_index(name='counts')
+
+
+        tuple = []
+        for year in self.distinct_year:
+            for event in self.distinct_EVENT_TYPE:
+                list = [year, event]
+                tuple.append(list)
+
+        grouped_set = []
+        for index, row in event_seq_df.iterrows():
+            grouped_set.append([row['Year'], row['1st_event']])
+        # print(grouped_set)
+
+        for element in tuple:
+            if element not in grouped_set:
+                # df = df.append({'CORRECTED_NAME': county, 'Year': element[0], 'EVENT_TYPE': element[1], 'counts': 0}, ignore_index=True)
+                event_seq_df = event_seq_df.append({'Year': element[0], '1st_event': element[1], 'counts': 0},
+                               ignore_index=True)
+
+
+
+        #event_seq_df = self.add_new_events_for_visualization(event_seq_df, '1st_event')
+        year = np.asarray(sorted(event_seq_df.Year.unique()))
+        print(year)
+        Dense_Fog = np.asarray(event_seq_df[event_seq_df['1st_event'] == 'Dense Fog'].sort_values(['Year']).counts)
+        print(Dense_Fog)
+
+        Hail = np.asarray(event_seq_df[event_seq_df['1st_event'] == 'Hail'].sort_values(['Year']).counts)
+        print(Hail)
+
+        Heavy_Rain = np.asarray(event_seq_df[event_seq_df['1st_event'] == 'Heavy Rain'].sort_values(['Year']).counts)
+        print(Heavy_Rain)
+
+        High_Wind = np.asarray(event_seq_df[event_seq_df['1st_event'] == 'High Wind'].sort_values(['Year']).counts)
+        print(High_Wind)
+
+        Lightning = np.asarray(event_seq_df[event_seq_df['1st_event'] == 'Lightning'].sort_values(['Year']).counts)
+        print(Lightning)
+
+        Thunderstorm_Wind = np.asarray(event_seq_df[event_seq_df['1st_event'] == 'Thunderstorm Wind'].sort_values(['Year']).counts)
+        print(Thunderstorm_Wind)
+
+        Tornado = np.asarray(event_seq_df[event_seq_df['1st_event'] == 'Tornado'].sort_values(['Year']).counts)
+        print(Tornado)
+
+        Tropical_Storm = np.asarray(event_seq_df[event_seq_df['1st_event'] == 'Tropical Storm'].sort_values(['Year']).counts)
+        print(Tropical_Storm)
+
+        Winter_Weather = np.asarray(event_seq_df[event_seq_df['1st_event'] == 'Winter Weather'].sort_values(['Year']).counts)
+        print(Winter_Weather)
+
+        df = pd.DataFrame({'Year': year, 'Dense_Fog': Dense_Fog, 'Hail': Hail, 'Heavy_Rain': Heavy_Rain,
+                           'High_Wind': High_Wind, 'Lightning': Lightning, 'Thunderstorm_Wind': Thunderstorm_Wind,
+                           'Tornado': Tornado, 'Tropical_Storm': Tropical_Storm, 'Winter_Weather':Winter_Weather})
+
+        title = 'Yearly prior event counts within 7 days before flooding (Fredericksburg)'
+        ncol = 9
+        self.plot_yearly_events(df, ncol, title)
+
+    def plot_yearly_events(self, df, ncol, title):
+        '''
+                #draws scatter plot for different criteria
+        '''
+
         colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22",
                   "#17becf"]
         i = 0
         # fig, ax = plt.subplots(1, 1)
-        fig, axs = plt.subplots(8, sharey=True, squeeze=False)
-        # axs.figure.set_size_inches(5, 8)
-        fig.suptitle('Yearly Event Counts')
+        fig, axs = plt.subplots(ncol, sharey=True, squeeze=False)
+
+        fig.suptitle(title)
         for column in df.drop('Year', axis=1):
-            print(df['Year'])
-            axs[i][0].scatter(df['Year'], df[column], color=colors[i], label=column)
+            # print(df['Year'])
+            axs[i][0].scatter(df['Year'], df[column], color=colors[i], label=column, s=df[column] * 20)
             # axs[i][0].plot(df['Year'], df[column], color=colors[i], label=column)
             # axs[i][0].legend(loc='center left', bbox_to_anchor=(0.82, 1), fancybox=True, shadow=True, ncol=3)
-            axs[i][0].legend(loc='left', bbox_to_anchor=(0.82, 1), fancybox=True, shadow=True)
+            axs[i][0].legend(loc='center right', bbox_to_anchor=(-0.03, 0.5), fancybox=True, shadow=True, markerscale=0)
             axs[i][0].figure.set_size_inches(15, 3)
-            # axs[i][0].set_autoscalex_on(False)
-            axs[i][0].autoscale(False, axis='X')
-            axs[i][0].axis('tight')
-            axs[i][0].set_ylim(bottom=1)
-            if (i < 7):
+            #axs[i][0].set_ylim(bottom=1)
+            axs[i][0].set_xticks(df['Year'])
+            axs[i][0].grid(True, linestyle='--', linewidth=0.3)
+            if (i < ncol - 1):
                 axs[i][0].set_xticklabels([])
-            # axs[i][0].autoscale(enable=False, axis='both', tight=False)
+
             i = i + 1
 
         plt.show()
 
 
+    def add_new_events_for_visualization(self, event_seq_df, event):
+
+        tuple = []
+        for year in self.distinct_year:
+            for event in self.distinct_EVENT_TYPE:
+                list = [year, event]
+                tuple.append(list)
+
+        grouped_set = []
+        for index, row in event_seq_df.iterrows():
+            #grouped_set.append([row['Year'], row['1st_event']])
+            grouped_set.append([row['Year'], row[event]])
+        # print(grouped_set)
+
+        for element in tuple:
+            if element not in grouped_set:
+                # df = df.append({'CORRECTED_NAME': county, 'Year': element[0], 'EVENT_TYPE': element[1], 'counts': 0}, ignore_index=True)
+                event_seq_df = event_seq_df.append({'Year': element[0], '1st_event': element[1], 'counts': 0},
+                               ignore_index=True)
+
+        return event_seq_df
+
+
+    def group_items(self, groupby_items, interesting_events, interesting_county, interesting_district):
+        df = self.df
+        #df = df.loc[df['CORRECTED_NAME'].isin(interesting_county)]
+        df = df.loc[df['DistrictName'].isin(interesting_district)]
+        df = df.loc[df['EVENT_TYPE'].isin(interesting_events)]
+
+        df = df.groupby(groupby_items).size().reset_index(name='counts')
+        #df = df.groupby(['CORRECTED_NAME', 'Year']).size().reset_index(name='counts')
+
+        # mean = df.groupby(['CZ_NAME','year']).agg(Mean=('counts', 'mean'))
+        # mean = df.groupby(['CORRECTED_NAME','year']).agg(Mean=('counts', 'mean'))
+        # std = df.groupby(['CORRECTED_NAME','year']).agg(Std=('counts', 'std'))
+
+        df = df.sort_values(by=groupby_items, ascending=True)
+        #df = df.sort_values(by=['CORRECTED_NAME', 'Year'], ascending=True)
+        return df
+
 
 
 def main():
     interesting_events = ['Flood', 'Flash Flood']
+    interesting_district = ['Fredericksburg']
+    #interesting_district = ['Bristol','Culpeper','Fredericksburg','Hampton Roads','Lynchburg', 'Northern Virginia', 'Richmond', 'Salem', 'Staunton']
     interesting_county = ['CAROLINE', 'ESSEX', 'FREDERICKSBURG', 'GLOUCESTER', 'KING GEORGE', 'KING AND QUEEN',
                           'KING WILLIAM', 'LANCASTER', 'MATHEWS', 'MIDDLESEX', 'NORTHUMBERLAND', 'SPOTSYLVANIA',
                           'STAFFORD', 'RICHMOND', 'WESTMORELAND']
+
+    #groupby_items = ['CORRECTED_NAME', 'Year']
+    groupby_items = ['Year']
+
     date_duration = 7
     flood = flooding()
     flood.load_data()
     # flood.selected_data(interesting_county)
-    # event_seq_df = flood.find_event_seq(interesting_events, date_duration)
+    #event_seq_df = flood.find_event_seq(interesting_events, date_duration)
     # event_diff_df = flood.find_flood_difference(interesting_events)
     # flood.visualize_hitmap(event_diff_df)
-    # flood.flooding_test(interesting_events)
-    flood.plot_flood_vs_other()
+    #interesting_events = ['Flood', 'Flash Flood']
+    interesting_events = ['Flood']
+
+    df = flood.group_items(groupby_items, interesting_events, interesting_county, interesting_district)
+    #print(df)
+    flood.flooding_test(df)
+    #flood.plot_flood_vs_other(interesting_county, interesting_district)
+    #flood.plot_event_seq(event_seq_df="", interesting_county=interesting_county, interesting_district = interesting_district)
 
 
 if __name__ == '__main__':
