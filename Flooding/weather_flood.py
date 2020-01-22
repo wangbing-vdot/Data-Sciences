@@ -143,10 +143,14 @@ class flooding:
 
 
         df = df.sort_values(by='Year', ascending=True)
+        #print(df['counts'][:10])
         print(df)
 
-        stat, p = ttest_ind(df['counts'][:6], df['counts'][6:], axis = 0, equal_var=False)
-        print('Statistics=%.3f, p=%.3f' % (stat, p))
+        stat, p = ttest_ind(df['counts'][:10], df['counts'][10:], equal_var=False)
+        p = p / 2  # convert to one tail from two tail
+        #print('Statistics=%.3f, p=%.3f' % (stat, p))
+        print('p=%.3f' % (p))
+
         # interpret
         alpha = 0.05
         if p > alpha:
